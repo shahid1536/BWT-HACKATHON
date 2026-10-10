@@ -5,6 +5,8 @@ import {
   Route,
   Navigate,
   useLocation,
+  Outlet,
+  useOutletContext,
 } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LandingPage from './pages/LandingPage';
@@ -16,6 +18,7 @@ import ExpiringSoonPage from './pages/ExpiringSoonPage';
 import ExpiredDocumentsPage from './pages/ExpiredDocumentsPage';
 import CategoriesPage from './pages/CategoriesPage';
 import SettingsPage from './pages/SettingsPage';
+import NotFoundPage from './pages/NotFoundPage';
 
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
@@ -25,7 +28,7 @@ import DeleteConfirmModal from './components/DeleteConfirmModal';
 
 import { categoryApi, documentApi, dashboardApi } from './services/api';
 
-// Protected Route Component
+// Protected Route Guard
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
 
@@ -47,8 +50,8 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-// Authenticated Layout Shell
-const AuthenticatedShell = () => {
+// Authenticated Layout Shell (renders Sidebar, Topbar, Outlet for nested routes, and global Modals)
+const AuthenticatedLayout = () => {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [categories, setCategories] = useState([]);
@@ -167,9 +170,22 @@ const AuthenticatedShell = () => {
     }
   };
 
+  // Shared context passed to child routes via Outlet
+  const outletContext = {
+    categories,
+    refreshKey,
+    triggerRefresh,
+    handleOpenUpload,
+    handleEditDocument,
+    handleSaveDocument,
+    handleDownload,
+    handlePromptDelete,
+    setPreviewDoc,
+  };
+
   return (
     <div className="min-h-screen bg-bg-main text-text-primary flex">
-      {/* Sidebar */}
+      {/* Sidebar Navigation */}
       <Sidebar
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -187,66 +203,7 @@ const AuthenticatedShell = () => {
         />
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
-          <Routes>
-            <Route
-              path="/dashboard"
-              element={
-                <DashboardPage
-                  onOpenUpload={handleOpenUpload}
-                  onPreviewDocument={(doc) => setPreviewDoc(doc)}
-                  refreshTrigger={refreshKey}
-                />
-              }
-            />
-            <Route
-              path="/documents"
-              element={
-                <DocumentsPage
-                  categories={categories}
-                  onOpenUpload={handleOpenUpload}
-                  onEditDocument={handleEditDocument}
-                  onPreviewDocument={(doc) => setPreviewDoc(doc)}
-                  onDeleteDocument={handlePromptDelete}
-                  onDownloadDocument={handleDownload}
-                  refreshTrigger={refreshKey}
-                />
-              }
-            />
-            <Route
-              path="/categories"
-              element={
-                <CategoriesPage
-                  onCategoryChanged={triggerRefresh}
-                />
-              }
-            />
-            <Route
-              path="/expiring-soon"
-              element={
-                <ExpiringSoonPage
-                  onPreviewDocument={(doc) => setPreviewDoc(doc)}
-                  onDownloadDocument={handleDownload}
-                  onEditDocument={handleEditDocument}
-                  onDeleteDocument={handlePromptDelete}
-                  refreshTrigger={refreshKey}
-                />
-              }
-            />
-            <Route
-              path="/expired"
-              element={
-                <ExpiredDocumentsPage
-                  onPreviewDocument={(doc) => setPreviewDoc(doc)}
-                  onDownloadDocument={handleDownload}
-                  onEditDocument={handleEditDocument}
-                  onDeleteDocument={handlePromptDelete}
-                  refreshTrigger={refreshKey}
-                />
-              }
-            />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
+          <Outlet context={outletContext} />
         </main>
       </div>
 
@@ -289,28 +246,93 @@ const AuthenticatedShell = () => {
   );
 };
 
+// Route wrapper helpers that connect Outlet context to page components
+const DashboardRoute = () => {
+  const ctx = useOutletContext();
+  return (
+    <DashboardPage
+      onOpenUpload={ctx.handleOpenUpload}
+      onPreviewDocument={(doc) => ctx.setPreviewDoc(doc)}
+      refreshTrigger={ctx.refreshKey}
+    />
+  );
+};
+
+const DocumentsRoute = () => {
+  const ctx = useOutletContext();
+  return (
+    <DocumentsPage
+      categories={ctx.categories}
+      onOpenUpload={ctx.handleOpenUpload}
+      onEditDocument={ctx.handleEditDocument}
+      onPreviewDocument={(doc) => ctx.setPreviewDoc(doc)}
+      onDeleteDocument={ctx.handlePromptDelete}
+      onDownloadDocument={ctx.handleDownload}
+      refreshTrigger={ctx.refreshKey}
+    />
+  );
+};
+
+const CategoriesRoute = () => {
+  const ctx = useOutletContext();
+  return <CategoriesPage onCategoryChanged={ctx.triggerRefresh} />;
+};
+
+const ExpiringSoonRoute = () => {
+  const ctx = useOutletContext();
+  return (
+    <ExpiringSoonPage
+      onPreviewDocument={(doc) => ctx.setPreviewDoc(doc)}
+      onDownloadDocument={ctx.handleDownload}
+      onEditDocument={ctx.handleEditDocument}
+      onDeleteDocument={ctx.handlePromptDelete}
+      refreshTrigger={ctx.refreshKey}
+    />
+  );
+};
+
+const ExpiredDocumentsRoute = () => {
+  const ctx = useOutletContext();
+  return (
+    <ExpiredDocumentsPage
+      onPreviewDocument={(doc) => ctx.setPreviewDoc(doc)}
+      onDownloadDocument={ctx.handleDownload}
+      onEditDocument={ctx.handleEditDocument}
+      onDeleteDocument={ctx.handlePromptDelete}
+      refreshTrigger={ctx.refreshKey}
+    />
+  );
+};
+
 // Root App Component
 const App = () => {
   return (
     <AuthProvider>
       <Router>
         <Routes>
-          {/* Public Landing Page */}
+          {/* Public Landing & Auth Routes */}
           <Route path="/" element={<LandingPage />} />
-
-          {/* Public Auth Routes */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
 
-          {/* Protected Application Routes */}
+          {/* Authenticated Application Routes with Shared Shell */}
           <Route
-            path="/*"
             element={
               <ProtectedRoute>
-                <AuthenticatedShell />
+                <AuthenticatedLayout />
               </ProtectedRoute>
             }
-          />
+          >
+            <Route path="/dashboard" element={<DashboardRoute />} />
+            <Route path="/documents" element={<DocumentsRoute />} />
+            <Route path="/categories" element={<CategoriesRoute />} />
+            <Route path="/expiring-soon" element={<ExpiringSoonRoute />} />
+            <Route path="/expired" element={<ExpiredDocumentsRoute />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
+
+          {/* Sensible 404 Fallback for Unmatched Routes */}
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Router>
     </AuthProvider>

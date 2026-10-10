@@ -13,6 +13,10 @@ export const protect = async (req, res, next) => {
     else if (req.cookies && req.cookies.token) {
       token = req.cookies.token;
     }
+    // Check Query Parameter (useful for cross-origin window.open download and preview)
+    else if (req.query && req.query.token) {
+      token = req.query.token;
+    }
 
     if (!token) {
       return res.status(401).json({

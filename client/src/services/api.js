@@ -69,8 +69,16 @@ export const documentApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
   delete: (id) => api.delete(`/documents/${id}`),
-  getDownloadUrl: (id) => `${api.defaults.baseURL}/documents/${id}/download`,
-  getPreviewUrl: (id) => `${api.defaults.baseURL}/documents/${id}/preview`,
+  getDownloadUrl: (id) => {
+    const token = localStorage.getItem('docukeep_token');
+    const base = `${api.defaults.baseURL}/documents/${id}/download`;
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  },
+  getPreviewUrl: (id) => {
+    const token = localStorage.getItem('docukeep_token');
+    const base = `${api.defaults.baseURL}/documents/${id}/preview`;
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  },
 };
 
 // Dashboard Service
