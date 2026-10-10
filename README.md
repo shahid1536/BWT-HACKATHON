@@ -63,7 +63,7 @@ DocuKeep is designed with a premium, restrained aesthetic inspired by high-produ
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: React 18, Vite, React Router 6, Tailwind CSS, Lucide React, Axios
+- **Frontend**: React 18, Vite, React Router 7, Tailwind CSS, Lucide React, Axios
 - **Backend**: Node.js, Express.js, MongoDB, Mongoose, Multer, bcryptjs, jsonwebtoken, cookie-parser
 - **Storage**: Private server storage layer with cryptographic unique filenames
 
@@ -125,6 +125,18 @@ npm run dev
 ```
 
 Open your browser at **[http://localhost:5173](http://localhost:5173)**.
+
+---
+
+## Production Deployment
+
+The Vercel project serves the React/Vite frontend only. The Express API and MongoDB must be deployed separately; Vercel's SPA fallback is not an API server. Configure Vercel with the repository root (`.`), the Vite preset, `npm ci` for installation, `npm run build` for the build command, and `client/dist` as the output directory. The `vercel.json` file contains these settings and the React Router fallback.
+
+The included `render.yaml` prepares the Express API for Render with a persistent upload disk. Creating that service requires a persistent-disk-capable Render plan because uploaded documents are stored on disk. The Render service needs a persistent MongoDB URI; set `MONGODB_URI` to the private Atlas connection string when creating the service. Render generates `JWT_SECRET`; it is not stored in the repository.
+
+After the API is deployed, set `VITE_API_URL` in the Vercel project to the API origin followed by `/api` (for example, `https://docukeep-api.onrender.com/api`) and redeploy. The API's `CLIENT_URL` must be `https://bwt-project.vercel.app`; add any other trusted production frontend origins to `CORS_ORIGINS` as a comma-separated list. Never add database credentials or JWT secrets to Vercel's frontend environment variables or source control.
+
+Production does not start if MongoDB or a strong JWT secret is missing, and it never substitutes an in-memory database. Local development can still fall back to an in-memory database. The backend health endpoint is `/api/health`.
 
 ---
 

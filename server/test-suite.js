@@ -87,7 +87,7 @@ async function runTests() {
 
   const baseUrl = {
     hostname: '127.0.0.1',
-    port: 5000,
+    port: Number(process.env.DOCUKEEP_TEST_PORT || 5000),
   };
 
   let tokenA = '';

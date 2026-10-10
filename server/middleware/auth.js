@@ -1,12 +1,13 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import { getJwtSecret } from '../config/security.js';
 
 export const protect = async (req, res, next) => {
   try {
     let token;
 
     // Check Authorization header (Bearer token)
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
       token = req.headers.authorization.split(' ')[1];
     }
     // Check Cookies
@@ -25,8 +26,7 @@ export const protect = async (req, res, next) => {
       });
     }
 
-    const secret = process.env.JWT_SECRET || 'docukeep_dev_secret_key_2026';
-    const decoded = jwt.verify(token, secret);
+    const decoded = jwt.verify(token, getJwtSecret());
 
     const user = await User.findById(decoded.id);
     if (!user) {
@@ -39,9 +39,12 @@ export const protect = async (req, res, next) => {
     req.user = user;
     next();
   } catch (err) {
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid or expired session. Please log in again.',
-    });
+    if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired session. Please log in again.',
+      });
+    }
+    return next(err);
   }
 };

@@ -32,7 +32,15 @@ api.interceptors.request.use(
 
 // Response Interceptor: handle 401 unauth
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const contentType = response.headers['content-type'] || '';
+    if (contentType.includes('text/html')) {
+      return Promise.reject(
+        new Error('The API returned a web page instead of JSON. Check that VITE_API_URL points to the deployed DocuKeep backend.')
+      );
+    }
+    return response;
+  },
   (error) => {
     if (error.response && error.response.status === 401) {
       if (

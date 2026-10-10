@@ -23,7 +23,7 @@ export const errorHandler = (err, req, res, next) => {
 
   // Mongoose Duplicate Key Error (e.g. unique email)
   else if (err.code === 11000) {
-    statusCode = 400;
+    statusCode = 409;
     const field = Object.keys(err.keyValue || {})[0] || 'record';
     message = `An account with this ${field} already exists.`;
   }
@@ -50,12 +50,6 @@ export const errorHandler = (err, req, res, next) => {
   else if (statusCode >= 400 && statusCode < 500 && err.message) {
     message = err.message;
   }
-
-  // Secure Server Log (excluding passwords/secrets)
-  const safeBody = { ...(req.body || {}) };
-  if (safeBody.password) safeBody.password = '[REDACTED]';
-  if (safeBody.newPassword) safeBody.newPassword = '[REDACTED]';
-  if (safeBody.currentPassword) safeBody.currentPassword = '[REDACTED]';
 
   console.error(
     `[Error] [${req.method} ${req.originalUrl}] Status: ${statusCode} - ${err.message}`

@@ -4,20 +4,22 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import Category from '../models/Category.js';
 import { DEFAULT_CATEGORIES } from '../config/constants.js';
+import { getJwtSecret } from '../config/security.js';
 
 const generateToken = (userId) => {
-  const secret = process.env.JWT_SECRET || 'docukeep_dev_secret_key_2026';
-  return jwt.sign({ id: userId }, secret, { expiresIn: '7d' });
+  return jwt.sign({ id: userId }, getJwtSecret(), { expiresIn: '7d' });
 };
 
 const sendTokenResponse = (user, statusCode, res) => {
   const token = generateToken(user._id);
+  const secureCookie = process.env.NODE_ENV === 'production';
 
   const cookieOptions = {
     expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     httpOnly: true,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    sameSite: secureCookie ? 'none' : 'lax',
+    secure: secureCookie,
+    path: '/',
   };
 
   res.cookie('token', token, cookieOptions);
@@ -65,14 +67,14 @@ export const register = async (req, res, next) => {
 
     const { name, email, password } = req.body || {};
 
-    if (!name || !name.trim()) {
+    if (typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({
         success: false,
         message: 'Please provide your full name.',
       });
     }
 
-    if (!email || !email.trim()) {
+    if (typeof email !== 'string' || !email.trim()) {
       return res.status(400).json({
         success: false,
         message: 'Please provide an email address.',
@@ -87,7 +89,7 @@ export const register = async (req, res, next) => {
       });
     }
 
-    if (!password || password.length < 6) {
+    if (typeof password !== 'string' || password.length < 6) {
       return res.status(400).json({
         success: false,
         message: 'Password must be at least 6 characters long.',
@@ -98,7 +100,7 @@ export const register = async (req, res, next) => {
 
     const existingUser = await User.findOne({ email: cleanEmail });
     if (existingUser) {
-      return res.status(400).json({
+      return res.status(409).json({
         success: false,
         message: 'An account with this email address already exists.',
       });
@@ -135,7 +137,7 @@ export const login = async (req, res, next) => {
 
     const { email, password } = req.body || {};
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || !email.trim() || typeof password !== 'string' || !password) {
       return res.status(400).json({
         success: false,
         message: 'Please provide both email and password.',
@@ -171,9 +173,11 @@ export const login = async (req, res, next) => {
 // @desc    Logout user / clear cookie
 // @route   POST /api/auth/logout
 export const logout = async (req, res) => {
-  res.cookie('token', 'none', {
-    expires: new Date(Date.now() + 10 * 1000),
+  res.clearCookie('token', {
     httpOnly: true,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
   });
 
   return res.status(200).json({

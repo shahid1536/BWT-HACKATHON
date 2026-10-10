@@ -3,26 +3,34 @@ import mongoose from 'mongoose';
 let mongoMemoryServer = null;
 
 export const connectDB = async () => {
-  const primaryUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/docukeep';
+  const isDevelopment = process.env.NODE_ENV !== 'production';
+  const primaryUri = process.env.MONGODB_URI || (
+    isDevelopment ? 'mongodb://127.0.0.1:27017/docukeep' : null
+  );
+
+  if (!primaryUri) {
+    throw new Error('MONGODB_URI must be configured before connecting to MongoDB in production.');
+  }
 
   try {
-    // Attempt connecting to the configured or default local URI first with a 3-second timeout
-    await mongoose.connect(primaryUri, {
-      serverSelectionTimeoutMS: 3000,
-    });
-    console.log(`[Database] Connected to MongoDB at ${primaryUri}`);
+    await mongoose.connect(primaryUri, { serverSelectionTimeoutMS: 10000 });
+    console.log('[Database] Connected to the configured MongoDB database.');
   } catch (err) {
-    console.warn(`[Database] Could not connect to primary MongoDB (${primaryUri}): ${err.message}`);
-    console.log('[Database] Starting in-memory MongoDB instance for local seamless development...');
+    if (!isDevelopment) {
+      console.error(`[Database] MongoDB connection failed (${err.name}).`);
+      throw new Error('Could not connect to the production MongoDB database.', { cause: err });
+    }
+
+    console.warn(`[Database] Local MongoDB unavailable (${err.name}); starting a development-only in-memory database.`);
 
     try {
       const { MongoMemoryServer } = await import('mongodb-memory-server');
       mongoMemoryServer = await MongoMemoryServer.create();
       const inMemoryUri = mongoMemoryServer.getUri();
       await mongoose.connect(inMemoryUri);
-      console.log(`[Database] Successfully connected to in-memory MongoDB at ${inMemoryUri}`);
+      console.log('[Database] Connected to the development-only in-memory MongoDB database.');
     } catch (memErr) {
-      console.error('[Database] Fatal: Failed to start in-memory database:', memErr.message);
+      console.error(`[Database] Failed to start development in-memory database (${memErr.name}).`);
       throw memErr;
     }
   }

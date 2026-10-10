@@ -1,4 +1,5 @@
 import http from 'http';
+import jwt from 'jsonwebtoken';
 
 const request = (options, postData = null) => {
   return new Promise((resolve, reject) => {
@@ -39,8 +40,14 @@ async function testAuthDiagnostics() {
   console.log('  DocuKeep - Auth & Registration Diagnostic Test');
   console.log('====================================================\n');
 
-  const serverUrl = { hostname: '127.0.0.1', port: 5000 };
-  const proxyUrl = { hostname: '127.0.0.1', port: 5173 };
+  const serverUrl = {
+    hostname: '127.0.0.1',
+    port: Number(process.env.DOCUKEEP_TEST_PORT || 5000),
+  };
+  const proxyUrl = {
+    hostname: '127.0.0.1',
+    port: Number(process.env.DOCUKEEP_PROXY_PORT || 5173),
+  };
 
   // 1. Missing name
   console.log('[Test 1] Missing name validation...');
@@ -136,7 +143,7 @@ async function testAuthDiagnostics() {
     },
     { name: 'Another Name', email: plusEmail, password: 'anotherPassword123' }
   );
-  console.assert(res6.statusCode === 400);
+  console.assert(res6.statusCode === 409);
   console.assert(res6.data.message === 'An account with this email address already exists.');
   console.assert(!res6.data.stack);
   console.log('✓ Duplicate email cleanly rejected:', res6.data.message);
@@ -157,8 +164,61 @@ async function testAuthDiagnostics() {
   console.assert(res7.data.token, 'Token returned');
   console.log('✓ Login verified successfully for registered user');
 
-  // 8. Login with incorrect password
-  console.log('\n[Test 8] Login with incorrect password...');
+  // 8. Restore authentication from the returned bearer token after a page refresh
+  console.log('\n[Test 8] Restore authenticated user from bearer token...');
+  const meRes = await request({
+    ...serverUrl,
+    path: '/api/auth/me',
+    method: 'GET',
+    headers: { Authorization: `Bearer ${res7.data.token}` },
+  });
+  console.assert(meRes.statusCode === 200);
+  console.assert(meRes.data.user.email === plusEmail.toLowerCase());
+  console.assert(!meRes.data.user.passwordHash);
+  console.log('✓ Authenticated profile restored without exposing password data');
+
+  // 9. Protected dashboard rejects missing credentials and accepts valid auth
+  console.log('\n[Test 9] Protected dashboard authorization...');
+  const unauthorizedDashboard = await request({
+    ...serverUrl,
+    path: '/api/dashboard/stats',
+    method: 'GET',
+  });
+  console.assert(unauthorizedDashboard.statusCode === 401);
+  const authorizedDashboard = await request({
+    ...serverUrl,
+    path: '/api/dashboard/stats',
+    method: 'GET',
+    headers: { Authorization: `Bearer ${res7.data.token}` },
+  });
+  console.assert(authorizedDashboard.statusCode === 200);
+  console.log('✓ Dashboard denies anonymous access and accepts the valid session token');
+
+  // 10. Invalid and expired tokens are rejected
+  console.log('\n[Test 10] Invalid and expired session tokens...');
+  const invalidSession = await request({
+    ...serverUrl,
+    path: '/api/auth/me',
+    method: 'GET',
+    headers: { Authorization: 'Bearer invalid.token.value' },
+  });
+  console.assert(invalidSession.statusCode === 401);
+  const expiredToken = jwt.sign(
+    { id: res7.data.user._id },
+    process.env.JWT_SECRET,
+    { expiresIn: -1 }
+  );
+  const expiredSession = await request({
+    ...serverUrl,
+    path: '/api/auth/me',
+    method: 'GET',
+    headers: { Authorization: `Bearer ${expiredToken}` },
+  });
+  console.assert(expiredSession.statusCode === 401);
+  console.log('✓ Invalid and expired session tokens are both rejected with 401');
+
+  // 11. Login with incorrect password
+  console.log('\n[Test 11] Login with incorrect password...');
   const res8 = await request(
     {
       ...serverUrl,
@@ -173,8 +233,8 @@ async function testAuthDiagnostics() {
   console.assert(!res8.data.stack);
   console.log('✓ Correctly rejected invalid credentials with 401');
 
-  // 9. Registration via Frontend Vite Proxy (port 5173 -> 5000)
-  console.log('\n[Test 9] Registration via Frontend Vite Proxy (Port 5173)...');
+  // 12. Registration via Frontend Vite Proxy
+  console.log('\n[Test 12] Registration via Frontend Vite Proxy...');
   const proxyEmail = `proxy_user_${Date.now()}@example.com`;
   const res9 = await request(
     {
@@ -191,7 +251,7 @@ async function testAuthDiagnostics() {
   console.log('✓ Frontend Vite proxy correctly forwards request and receives response');
 
   console.log('\n====================================================');
-  console.log('  ALL AUTH DIAGNOSTIC TESTS PASSED! (9/9)');
+  console.log('  ALL AUTH DIAGNOSTIC TESTS PASSED! (12/12)');
   console.log('====================================================\n');
 }
 
