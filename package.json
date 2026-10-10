@@ -2,10 +2,14 @@
   "name": "docukeep-workspace",
   "version": "1.0.0",
   "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
   "scripts": {
     "install:server": "npm --prefix server install",
     "install:client": "npm --prefix client install",
-    "install:all": "npm run install:server && npm run install:client",
+    "install:all": "npm install",
     "start:server": "npm --prefix server start",
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",
