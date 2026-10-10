@@ -26,7 +26,7 @@ DocuKeep is designed with a premium, restrained aesthetic inspired by high-produ
 
 1. **Personal Document Storage**
    - Upload PDF, Word (`.doc`, `.docx`), images (`.jpg`, `.png`, `.webp`), and scanned records (up to 15MB).
-   - Secure private local filesystem storage isolated from public static paths.
+   - Private file storage: local filesystem during development and private Vercel Blob in production.
    - Inline preview modal for PDF and images, with instant secure downloads.
    - Clean drag-and-drop upload zone and standard file picker.
 
@@ -79,23 +79,10 @@ DocuKeep is designed with a premium, restrained aesthetic inspired by high-produ
 
 ### 1. Installation
 
-Install all dependencies for root, server, and client:
+Install the npm workspaces and generate/use the root lockfile:
 
 ```bash
-# Install server dependencies
-cd server
-npm install
-
-# Install client dependencies
-cd ../client
-npm install
-
-cd ..
-```
-
-Or from the root directory:
-```bash
-npm run install:all
+npm ci
 ```
 
 ### 2. Configuration
@@ -130,13 +117,28 @@ Open your browser at **[http://localhost:5173](http://localhost:5173)**.
 
 ## Production Deployment
 
-The Vercel project serves the React/Vite frontend only. The Express API and MongoDB must be deployed separately; Vercel's SPA fallback is not an API server. Configure Vercel with the repository root (`.`), the Vite preset, `npm ci` for installation, `npm run build` for the build command, and `client/dist` as the output directory. The `vercel.json` file contains these settings and the React Router fallback.
+The repository is configured for a single Vercel project at the repository root (`.`). Vercel builds the Vite app from the `client` workspace into `client/dist`; the Express API is exposed as a Node serverless function from `api/[...route].js`. The API function connects to MongoDB before serving requests. `/api/*` is handled by the function, while other paths fall back to the SPA for React Router deep links.
 
-The included `render.yaml` prepares the Express API for Render with a persistent upload disk. Creating that service requires a persistent-disk-capable Render plan because uploaded documents are stored on disk. The Render service needs a persistent MongoDB URI; set `MONGODB_URI` to the private Atlas connection string when creating the service. Render generates `JWT_SECRET`; it is not stored in the repository.
+Vercel project settings:
 
-After the API is deployed, set `VITE_API_URL` in the Vercel project to the API origin followed by `/api` (for example, `https://docukeep-api.onrender.com/api`) and redeploy. The API's `CLIENT_URL` must be `https://bwt-project.vercel.app`; add any other trusted production frontend origins to `CORS_ORIGINS` as a comma-separated list. Never add database credentials or JWT secrets to Vercel's frontend environment variables or source control.
+| Setting | Value |
+| --- | --- |
+| Root Directory | `.` (repository root) |
+| Framework Preset | Vite |
+| Install Command | `npm ci` |
+| Build Command | `npm run build` |
+| Output Directory | `client/dist` |
 
-Production does not start if MongoDB or a strong JWT secret is missing, and it never substitutes an in-memory database. Local development can still fall back to an in-memory database. The backend health endpoint is `/api/health`.
+Set these **server-only** environment variables in Vercel for Production (and Preview if desired):
+
+- `MONGODB_URI`: the private MongoDB Atlas connection URI. Keep credentials in Vercel, never in source control or any `VITE_` variable.
+- `JWT_SECRET`: a unique random secret of at least 32 characters.
+- `CLIENT_URL`: `https://bwt-project.vercel.app` (the production frontend origin).
+- Connect a **private Vercel Blob** store to the same project. Vercel injects the Blob credentials; uploads go directly from the browser to private storage and the API validates ownership before saving metadata.
+
+Do not set `VITE_API_URL` for this deployment: the frontend and API share the same origin. Production fails closed when the database or JWT secret is not configured, and does not use in-memory persistence. Local development continues to support disk uploads and a development-only in-memory MongoDB fallback.
+
+MongoDB Atlas must permit connections from the Vercel function. Vercel's default dynamic egress does not have a single IP to add to the Atlas IP access list; use a supported fixed-egress/private networking option if available for the chosen plans. Do not broadly open the database network access without understanding the security implications. The API health endpoint is `/api/health`.
 
 ---
 

@@ -1,7 +1,14 @@
 import path from 'path';
 import fs from 'fs';
-import Document, { calculateDocumentStatus } from '../models/Document.js';
+import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE } from '../config/constants.js';
+import Document from '../models/Document.js';
 import { uploadDir } from '../middleware/upload.js';
+import {
+  getStoredFileMetadata,
+  removeStoredFile,
+  streamStoredFile,
+  usesVercelBlob,
+} from '../services/fileStorage.js';
 
 // Helper to safely remove file from disk
 const removeFile = (filename) => {
@@ -16,11 +23,74 @@ const removeFile = (filename) => {
   }
 };
 
+const pipeStoredFile = (stream, res, next) => {
+  stream.once('error', (err) => {
+    if (res.headersSent) {
+      res.destroy(err);
+    } else {
+      next(err);
+    }
+  });
+  return stream.pipe(res);
+};
+
+const getUploadedFile = async (req) => {
+  if (req.file) {
+    return {
+      originalFilename: req.file.originalname,
+      storedFilename: req.file.filename,
+      mimeType: req.file.mimetype,
+      fileSize: req.file.size,
+      storageKey: req.file.filename,
+    };
+  }
+
+  const { storageKey, originalFilename, mimeType, fileSize } = req.body || {};
+  if (!storageKey) return null;
+  if (!usesVercelBlob()) {
+    throw Object.assign(new Error('Cloud file storage is not configured.'), { status: 503 });
+  }
+  if (!storageKey.startsWith(`documents/${req.user._id.toString()}/`)) {
+    throw Object.assign(new Error('Uploaded file does not belong to this account.'), { status: 403 });
+  }
+  if (
+    typeof originalFilename !== 'string' ||
+    !originalFilename.trim() ||
+    typeof mimeType !== 'string' ||
+    !ALLOWED_MIME_TYPES.includes(mimeType) ||
+    !Number.isInteger(Number(fileSize)) ||
+    Number(fileSize) < 1 ||
+    Number(fileSize) > MAX_FILE_SIZE
+  ) {
+    throw Object.assign(new Error('Uploaded file metadata is invalid.'), { status: 400 });
+  }
+
+  const storedMetadata = await getStoredFileMetadata(storageKey);
+  if (
+    !storedMetadata ||
+    storedMetadata.size !== Number(fileSize) ||
+    storedMetadata.contentType !== mimeType
+  ) {
+    throw Object.assign(new Error('Uploaded file could not be verified in private storage.'), {
+      status: 400,
+    });
+  }
+
+  return {
+    originalFilename: originalFilename.trim(),
+    storedFilename: storageKey,
+    mimeType,
+    fileSize: Number(fileSize),
+    storageKey,
+  };
+};
+
 // @desc    Upload and create a new document
 // @route   POST /api/documents
 export const createDocument = async (req, res, next) => {
   try {
-    if (!req.file) {
+    const uploadedFile = await getUploadedFile(req);
+    if (!uploadedFile) {
       return res.status(400).json({
         success: false,
         message: 'Please select a document file to upload.',
@@ -30,7 +100,7 @@ export const createDocument = async (req, res, next) => {
     const { title, category, description, issueDate, expiryDate } = req.body;
 
     if (!title || !title.trim()) {
-      removeFile(req.file.filename);
+      if (req.file) removeFile(req.file.filename);
       return res.status(400).json({
         success: false,
         message: 'Document title is required.',
@@ -38,7 +108,7 @@ export const createDocument = async (req, res, next) => {
     }
 
     if (!category || !category.trim()) {
-      removeFile(req.file.filename);
+      if (req.file) removeFile(req.file.filename);
       return res.status(400).json({
         success: false,
         message: 'Category is required.',
@@ -50,7 +120,7 @@ export const createDocument = async (req, res, next) => {
     const parsedExpiry = expiryDate ? new Date(expiryDate) : null;
 
     if (parsedIssue && parsedExpiry && parsedExpiry < parsedIssue) {
-      removeFile(req.file.filename);
+      if (req.file) removeFile(req.file.filename);
       return res.status(400).json({
         success: false,
         message: 'Expiry date cannot be earlier than issue date.',
@@ -64,11 +134,7 @@ export const createDocument = async (req, res, next) => {
       description: description ? description.trim() : '',
       issueDate: parsedIssue,
       expiryDate: parsedExpiry,
-      originalFilename: req.file.originalname,
-      storedFilename: req.file.filename,
-      mimeType: req.file.mimetype,
-      fileSize: req.file.size,
-      storageKey: req.file.filename,
+      ...uploadedFile,
     });
 
     return res.status(201).json({
@@ -77,9 +143,7 @@ export const createDocument = async (req, res, next) => {
       document: newDoc,
     });
   } catch (err) {
-    if (req.file) {
-      removeFile(req.file.filename);
-    }
+    if (req.file) removeFile(req.file.filename);
     next(err);
   }
 };
@@ -175,6 +239,7 @@ export const getDocumentById = async (req, res, next) => {
 // @route   PUT /api/documents/:id
 export const updateDocument = async (req, res, next) => {
   try {
+    const uploadedFile = await getUploadedFile(req);
     const document = await Document.findOne({
       _id: req.params.id,
       userId: req.user._id,
@@ -211,20 +276,26 @@ export const updateDocument = async (req, res, next) => {
       });
     }
 
-    // If a replacement file was uploaded
-    if (req.file) {
-      const oldFilename = document.storedFilename;
-      document.originalFilename = req.file.originalname;
-      document.storedFilename = req.file.filename;
-      document.mimeType = req.file.mimetype;
-      document.fileSize = req.file.size;
-      document.storageKey = req.file.filename;
-
-      // Safely delete previous file
-      removeFile(oldFilename);
+    const oldStorageKey = uploadedFile
+      ? document.storageKey || document.storedFilename
+      : null;
+    if (uploadedFile) {
+      document.originalFilename = uploadedFile.originalFilename;
+      document.storedFilename = uploadedFile.storedFilename;
+      document.mimeType = uploadedFile.mimeType;
+      document.fileSize = uploadedFile.fileSize;
+      document.storageKey = uploadedFile.storageKey;
     }
 
     await document.save();
+
+    if (oldStorageKey && oldStorageKey !== uploadedFile?.storageKey) {
+      try {
+        await removeStoredFile(oldStorageKey);
+      } catch (cleanupError) {
+        console.error('[Storage] Updated document, but failed to remove its previous file:', cleanupError);
+      }
+    }
 
     return res.status(200).json({
       success: true,
@@ -253,8 +324,7 @@ export const deleteDocument = async (req, res, next) => {
       });
     }
 
-    // Delete file from disk
-    removeFile(document.storedFilename);
+    await removeStoredFile(document.storageKey || document.storedFilename);
 
     await document.deleteOne();
 
@@ -283,16 +353,21 @@ export const downloadDocument = async (req, res, next) => {
       });
     }
 
-    const filePath = path.join(uploadDir, document.storedFilename);
-
-    if (!fs.existsSync(filePath)) {
+    const storedFile = await streamStoredFile(document.storageKey || document.storedFilename);
+    if (!storedFile) {
       return res.status(404).json({
         success: false,
         message: 'The physical file was not found on the server storage.',
       });
     }
 
-    return res.download(filePath, document.originalFilename);
+    res.setHeader('Content-Type', storedFile.contentType || document.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(document.originalFilename)}`
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    return pipeStoredFile(storedFile.stream, res, next);
   } catch (err) {
     next(err);
   }
@@ -314,23 +389,22 @@ export const previewDocument = async (req, res, next) => {
       });
     }
 
-    const filePath = path.join(uploadDir, document.storedFilename);
-
-    if (!fs.existsSync(filePath)) {
+    const storedFile = await streamStoredFile(document.storageKey || document.storedFilename);
+    if (!storedFile) {
       return res.status(404).json({
         success: false,
         message: 'The physical file was not found on the server storage.',
       });
     }
 
-    res.setHeader('Content-Type', document.mimeType);
+    res.setHeader('Content-Type', storedFile.contentType || document.mimeType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader(
       'Content-Disposition',
       `inline; filename="${encodeURIComponent(document.originalFilename)}"`
     );
 
-    const stream = fs.createReadStream(filePath);
-    stream.pipe(res);
+    return pipeStoredFile(storedFile.stream, res, next);
   } catch (err) {
     next(err);
   }

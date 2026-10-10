@@ -10,8 +10,12 @@ import {
 } from '../controllers/documentController.js';
 import { protect } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
+import { deleteUploadedBlob, handleDocumentBlobUpload } from '../controllers/blobController.js';
 
 const router = express.Router();
+
+router.post('/blob-upload', handleDocumentBlobUpload);
+router.delete('/blob-upload', protect, deleteUploadedBlob);
 
 // Apply auth protection to all document routes
 router.use(protect);

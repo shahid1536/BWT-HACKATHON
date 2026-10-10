@@ -7,7 +7,9 @@ import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE } from '../config/constants.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const uploadDir = path.resolve(__dirname, '../uploads');
+const uploadDir = process.env.VERCEL
+  ? path.join(process.env.TMPDIR || '/tmp', 'docukeep-uploads')
+  : path.resolve(__dirname, '../uploads');
 
 // Ensure upload directory exists
 if (!fs.existsSync(uploadDir)) {

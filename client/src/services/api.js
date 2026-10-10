@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { upload } from '@vercel/blob/client';
 
 // Dynamically determine API Base URL:
 // 1. If VITE_API_URL environment variable is provided, use it (handles deployed backends)
@@ -68,14 +69,26 @@ export const authApi = {
 export const documentApi = {
   getAll: (params) => api.get('/documents', { params }),
   getById: (id) => api.get(`/documents/${id}`),
-  create: (formData) =>
-    api.post('/documents', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }),
-  update: (id, formData) =>
-    api.put(`/documents/${id}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }),
+  uploadFile: (file) => {
+    const token = localStorage.getItem('docukeep_token');
+    const user = JSON.parse(localStorage.getItem('docukeep_user') || 'null');
+    if (!token || !user?._id) {
+      throw new Error('Your session expired. Please sign in again before uploading.');
+    }
+
+    const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120);
+    const pathname = `documents/${user._id}/${crypto.randomUUID()}-${safeFilename}`;
+    return upload(pathname, file, {
+      access: 'private',
+      contentType: file.type,
+      handleUploadUrl: `${api.defaults.baseURL}/documents/blob-upload`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  },
+  deleteUploadedFile: (pathname) =>
+    api.delete('/documents/blob-upload', { data: { pathname } }),
+  create: (data) => api.post('/documents', data),
+  update: (id, data) => api.put(`/documents/${id}`, data),
   delete: (id) => api.delete(`/documents/${id}`),
   getDownloadUrl: (id) => {
     const token = localStorage.getItem('docukeep_token');

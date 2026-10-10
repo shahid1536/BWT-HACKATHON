@@ -129,6 +129,45 @@ const AuthenticatedLayout = () => {
   };
 
   const handleSaveDocument = async (formData, id) => {
+    if (import.meta.env.PROD) {
+      const file = formData.get('file');
+      const metadata = Object.fromEntries(
+        [...formData.entries()].filter(([key]) => key !== 'file')
+      );
+
+      if (file instanceof File) {
+        const blob = await documentApi.uploadFile(file);
+        const documentData = {
+          ...metadata,
+          storageKey: blob.pathname,
+          originalFilename: file.name,
+          mimeType: file.type,
+          fileSize: file.size,
+        };
+
+        try {
+          if (id) {
+            await documentApi.update(id, documentData);
+          } else {
+            await documentApi.create(documentData);
+          }
+        } catch (err) {
+          try {
+            await documentApi.deleteUploadedFile(blob.pathname);
+          } catch (cleanupError) {
+            console.error('Failed to clean up an unlinked private document upload:', cleanupError);
+          }
+          throw err;
+        }
+      } else if (id) {
+        await documentApi.update(id, metadata);
+      } else {
+        throw new Error('Select a file before creating a document.');
+      }
+      triggerRefresh();
+      return;
+    }
+
     if (id) {
       await documentApi.update(id, formData);
     } else {

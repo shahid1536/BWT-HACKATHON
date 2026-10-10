@@ -2,49 +2,44 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import { getJwtSecret } from '../config/security.js';
 
-export const protect = async (req, res, next) => {
+const authenticationError = (message) =>
+  Object.assign(new Error(message), { status: 401 });
+
+export const getAuthenticatedUser = async (req) => {
+  const authorization = req.headers.authorization;
+  const token = authorization?.startsWith('Bearer ')
+    ? authorization.slice('Bearer '.length)
+    : req.cookies?.token || req.query?.token;
+
+  if (!token) {
+    throw authenticationError('Authentication required. Please log in.');
+  }
+
+  let decoded;
   try {
-    let token;
-
-    // Check Authorization header (Bearer token)
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-      token = req.headers.authorization.split(' ')[1];
-    }
-    // Check Cookies
-    else if (req.cookies && req.cookies.token) {
-      token = req.cookies.token;
-    }
-    // Check Query Parameter (useful for cross-origin window.open download and preview)
-    else if (req.query && req.query.token) {
-      token = req.query.token;
-    }
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required. Please log in.',
-      });
-    }
-
-    const decoded = jwt.verify(token, getJwtSecret());
-
-    const user = await User.findById(decoded.id);
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'The user belonging to this token no longer exists.',
-      });
-    }
-
-    req.user = user;
-    next();
+    decoded = jwt.verify(token, getJwtSecret());
   } catch (err) {
     if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired session. Please log in again.',
-      });
+      throw authenticationError('Invalid or expired session. Please log in again.');
     }
-    return next(err);
+    throw err;
+  }
+
+  const user = await User.findById(decoded.id);
+  if (!user) {
+    throw authenticationError('The user belonging to this token no longer exists.');
+  }
+  return user;
+};
+
+export const protect = async (req, res, next) => {
+  try {
+    req.user = await getAuthenticatedUser(req);
+    next();
+  } catch (err) {
+    if (err.status === 401) {
+      return res.status(401).json({ success: false, message: err.message });
+    }
+    next(err);
   }
 };

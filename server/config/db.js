@@ -1,8 +1,9 @@
 import mongoose from 'mongoose';
 
 let mongoMemoryServer = null;
+let connectionPromise = null;
 
-export const connectDB = async () => {
+const connectDBOnce = async () => {
   const isDevelopment = process.env.NODE_ENV !== 'production';
   const primaryUri = process.env.MONGODB_URI || (
     isDevelopment ? 'mongodb://127.0.0.1:27017/docukeep' : null
@@ -36,7 +37,20 @@ export const connectDB = async () => {
   }
 };
 
+export const connectDB = async () => {
+  if (mongoose.connection.readyState === 1) return mongoose.connection;
+  if (connectionPromise) return connectionPromise;
+
+  connectionPromise = connectDBOnce();
+  try {
+    return await connectionPromise;
+  } finally {
+    connectionPromise = null;
+  }
+};
+
 export const closeDB = async () => {
+  connectionPromise = null;
   await mongoose.disconnect();
   if (mongoMemoryServer) {
     await mongoMemoryServer.stop();
