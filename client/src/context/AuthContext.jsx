@@ -26,16 +26,20 @@ export const AuthProvider = ({ children }) => {
 
         try {
           const res = await authApi.getMe();
-          if (res.data.success && res.data.user) {
+          if (res.data?.success && res.data?.user) {
             setUser(res.data.user);
             localStorage.setItem('docukeep_user', JSON.stringify(res.data.user));
           }
         } catch (err) {
-          console.warn('Session expired or invalid, clearing local auth');
-          localStorage.removeItem('docukeep_token');
-          localStorage.removeItem('docukeep_user');
-          setUser(null);
-          setToken(null);
+          if (err.response?.status === 401) {
+            console.warn('Session expired or invalid, clearing local auth');
+            localStorage.removeItem('docukeep_token');
+            localStorage.removeItem('docukeep_user');
+            setUser(null);
+            setToken(null);
+          } else {
+            console.warn('Backend unreachable during session verification, preserving local session state');
+          }
         }
       }
       setLoading(false);
